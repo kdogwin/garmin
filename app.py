@@ -1,4 +1,5 @@
-import os, time, request
+import os, time
+import requests
 from datetime import datetime, timezone
 from flask import Flask, request, jsonify
 from garminconnect import Garmin
@@ -12,8 +13,8 @@ STRAVA_CLIENT_ID = os.getenv("STRAVA_CLIENT_ID")
 STRAVA_CLIENT_SECRET = os.getenv("STRAVA_CLIENT_SECRET")
 STRAVA_REFRESH_TOKEN = os.getenv("STRAVA_REFRESH_TOKEN")
 
-STRAVA_TOKEN_URL = ""
-STRAVA_ACTIVITIES_URL = ""
+STRAVA_TOKEN_URL = os.getenv("STRAVA_TOKEN_URL", "")  # set these in env
+STRAVA_ACTIVITIES_URL = os.getenv("STRAVA_ACTIVITIES_URL", "")
 
 def parse_iso(dt_str):
     return datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
@@ -31,7 +32,7 @@ def refresh_strava_token():
 def fetch_training_load(start_dt_local, sport_type):
     gc = Garmin(GARMIN_USER, GARMIN_PASS)
     gc.login()
-    recent = gc.activites(0, 20)
+    recent = gc.get_activities(0, 20)  # fix method name (verify with your library)
 
     sport_type = sport_type.lower()
     for act in recent:
@@ -56,11 +57,11 @@ def update_strava_description(activity_id, prepend_text, bearer):
     new_desc = f"{prepend_text}\n{current}".strip()
     put = requests.put(f"{STRAVA_ACTIVITIES_URL}/{activity_id}", headers={"Authorization": f"Bearer {bearer}"}, data={"description": new_desc})
     put.raise_for_status()
-    return put.json
+    return put.json()
 
 @app.post("/zap")
 def zap_handler():
-    payload = requests.get_json(force=True)
+    payload = request.get_json(force=True)
     activity_id = payload.get("activity_id")
     start_local = payload.get("start_date_local")
     sport_type = payload.get("type")
@@ -69,7 +70,7 @@ def zap_handler():
 
     time.sleep(10)
     tl = fetch_training_load(parse_iso(start_local), sport_type)
-    prefix = f"Garmin Load - {tl if tl else "N/A"}"
+    prefix = f'Garmin Load - {tl if tl else "N/A"}'
     token = refresh_strava_token()
     upd = update_strava_description(int(activity_id), prefix, token)
-    return jsonify({"ok": True, "training_load": tl, "strava_activity": upd.get("id")})            
+    return jsonify({"ok": True, "training_load": tl, "strava_activity": upd.get("id")})
